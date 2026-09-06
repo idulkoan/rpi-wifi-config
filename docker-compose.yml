@@ -1,0 +1,16 @@
+services:
+  wifi-config:
+    build: ./app
+    container_name: wifi-config
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8090:8090"
+    volumes:
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+    environment:
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+      - SECRET_KEY=${SECRET_KEY}
+      - WIFI_USER=${WIFI_USER:-admin}
+      - WIFI_PASS=${WIFI_PASS}
+    security_opt:
+      - no-new-privileges:true
