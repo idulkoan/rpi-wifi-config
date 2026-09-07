@@ -147,8 +147,17 @@ success "Docker is running and accessible"
 if ! command -v pkaction &>/dev/null; then
     fail "polkit is not installed."
 fi
-POLKIT_VERSION=$(pkaction --version 2>&1 | grep -oP '\d+' | head -1)
-if [ "$POLKIT_VERSION" -lt 105 ]; then
+if ! command -v dpkg &>/dev/null; then
+    fail "dpkg is required for version checks but was not found."
+fi
+
+# pkaction usually prints values like "0.105" or "122"; compare using dpkg.
+POLKIT_VERSION=$(pkaction --version 2>&1 | awk '{print $NF}' | head -1)
+if [ -z "$POLKIT_VERSION" ]; then
+    fail "Could not detect polkit version from: $(pkaction --version 2>&1)"
+fi
+
+if ! dpkg --compare-versions "$POLKIT_VERSION" ge "0.105"; then
     fail "polkit version $POLKIT_VERSION is too old. Need >= 0.105."
 fi
 success "polkit version $POLKIT_VERSION"
