@@ -1,6 +1,6 @@
 # wifi-config
 
-A lightweight web interface for managing Wi-Fi connections on a Raspberry Pi running Raspberry Pi OS Bookworm (Debian 12) with NetworkManager.
+A lightweight web interface for managing Wi-Fi connections on a Raspberry Pi running Raspberry Pi OS Bullseye or Bookworm (Debian 11/12) with NetworkManager.
 
 Runs as a Docker container. Communicates with NetworkManager over D-Bus. Does not require any privileged container flags.
 
@@ -21,8 +21,7 @@ Runs as a Docker container. Communicates with NetworkManager over D-Bus. Does no
 
 The following must be true on the target Pi before running the installer:
 
-- Raspberry Pi OS Bookworm (Debian 12)
-- NetworkManager managing networking — not dhcpcd, not systemd-networkd
+- Raspberry Pi OS Bullseye or Bookworm (Debian 11/12)
 - Docker and Docker Compose installed
 - `wlan0` present and not rfkill-blocked
 
@@ -30,15 +29,13 @@ To verify your Pi is compatible, run:
 
 ```bash
 cat /etc/os-release
-systemctl is-active NetworkManager
-systemctl is-active dhcpcd
 ip link show wlan0
 rfkill list wifi
 ```
 
-Expected: OS is Bookworm, NetworkManager is `active`, dhcpcd returns not found, wlan0 exists, wifi is not blocked.
+Expected: OS is Bullseye/Bookworm, wlan0 exists, and wifi is not blocked.
 
-> Older Raspberry Pi OS versions (Bullseye and earlier) used dhcpcd by default and are **not supported**. Check with `cat /etc/os-release` before proceeding.
+On Bullseye, the installer will automatically install/enable NetworkManager and disable dhcpcd so the app can manage Wi-Fi over D-Bus.
 
 ---
 
@@ -54,7 +51,7 @@ The installer will:
 
 1. Verify system compatibility and that the repo is complete
 2. Prompt for web UI credentials and save them to `.env`
-3. Stamp the Pi's hostname into the web UI
+3. Record the Pi hostname for web UI display
 4. Install the polkit rule (substituting your actual username)
 5. Set ownership on any existing Wi-Fi connection profiles
 6. Build the Docker image and start the container
@@ -112,7 +109,7 @@ The installer prints the exact URL at the end, along with ready-to-paste entries
 bash uninstall.sh
 ```
 
-Stops the container, removes the polkit rule, removes `.env`, and restores `index.html` to its placeholder state. The repo is left intact and ready to reinstall.
+Stops the container, removes the polkit rule, and removes `.env`. The repo is left intact and ready to reinstall.
 
 To fully remove everything:
 
@@ -158,7 +155,7 @@ wifi-config/
 │   ├── requirements.txt
 │   ├── app.py
 │   └── templates/
-│       └── index.html              # Contains HOSTNAME_PLACEHOLDER — stamped by installer
+│       └── index.html              # Hostname is rendered from HOSTNAME_DISPLAY
 └── polkit/
     └── 10-wifi-config.rules        # Contains "pi" placeholder — substituted by installer
 ```
@@ -209,9 +206,9 @@ docker compose up -d
 
 ---
 
-## Differences on Raspberry Pi 4B
+## Notes for Raspberry Pi 4B
 
-The Pi 4B uses the same Bookworm OS and NetworkManager setup, so this works without modification provided the OS is Bookworm (not Bullseye or earlier). The wireless interface is also called `wlan0`.
+The Pi 4B works with this project on both Bullseye and Bookworm. On Bullseye, `install.sh` migrates networking control from `dhcpcd` to NetworkManager.
 
 ---
 

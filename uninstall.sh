@@ -24,7 +24,6 @@ echo "  This will:"
 echo "  - Stop and remove the Docker container"
 echo "  - Remove the polkit rule"
 echo "  - Remove your .env credentials file"
-echo "  - Restore index.html to its placeholder state"
 echo ""
 read -p "  Continue? [y/N]: " CONFIRM
 if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
@@ -55,14 +54,6 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     info "Removing .env..."
     rm "$SCRIPT_DIR/.env"
     success ".env removed"
-fi
-
-# Restore hostname placeholder in index.html
-if [ -f "$SCRIPT_DIR/app/templates/index.html" ]; then
-    info "Restoring index.html placeholder..."
-    HOSTNAME="$(hostname)"
-    sed -i "s/${HOSTNAME}/HOSTNAME_PLACEHOLDER/g" "$SCRIPT_DIR/app/templates/index.html"
-    success "index.html restored"
 fi
 
 echo ""

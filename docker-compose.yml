@@ -12,5 +12,6 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - WIFI_USER=${WIFI_USER:-admin}
       - WIFI_PASS=${WIFI_PASS}
+      - HOSTNAME_DISPLAY=${HOSTNAME_DISPLAY}
     security_opt:
       - no-new-privileges:true

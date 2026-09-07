@@ -1,6 +1,6 @@
 #!/bin/bash
 # wifi-config installer
-# Supports: Raspberry Pi OS Bookworm (Debian 12) with NetworkManager
+# Supports: Raspberry Pi OS Bullseye/Bookworm (Debian 11/12) with NetworkManager
 # Run as the pi user (not root). Will use sudo where needed.
 
 set -e
@@ -40,28 +40,72 @@ if ! grep -q 'ID=debian\|ID_LIKE=debian' /etc/os-release 2>/dev/null; then
 fi
 
 VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
-if [ "$VERSION_ID" != "12" ]; then
-    fail "Requires Debian 12 (Bookworm). Found VERSION_ID=$VERSION_ID.
+VERSION_MAJOR="${VERSION_ID%%.*}"
+case "$VERSION_MAJOR" in
+    11)
+        success "OS: Debian 11 Bullseye"
+        ;;
+    12)
+        success "OS: Debian 12 Bookworm"
+        ;;
+    *)
+        fail "Requires Debian 11 or 12. Found VERSION_ID=$VERSION_ID"
+        ;;
+esac
 
-    Older versions (Bullseye, Buster) use dhcpcd instead of NetworkManager
-    and are not supported. Please upgrade your OS first."
+info "Ensuring NetworkManager is installed and active..."
+if ! command -v nmcli &>/dev/null; then
+    warn "NetworkManager is not installed. Installing now..."
+    sudo apt-get update
+    sudo apt-get install -y network-manager
 fi
-success "OS: Debian 12 Bookworm"
+
+sudo systemctl enable NetworkManager >/dev/null 2>&1 || true
+sudo systemctl start NetworkManager
 
 if ! systemctl is-active --quiet NetworkManager; then
-    fail "NetworkManager is not running.
-
-    This system may be using dhcpcd or systemd-networkd instead.
-    Run: systemctl status NetworkManager
-    to investigate."
+    fail "NetworkManager failed to start. Check: sudo systemctl status NetworkManager"
 fi
 success "NetworkManager is active"
 
 if systemctl is-active --quiet dhcpcd 2>/dev/null; then
-    fail "dhcpcd is running. This conflicts with NetworkManager.
-    This system is not configured correctly for this tool."
+    warn "dhcpcd is active and conflicts with NetworkManager. Disabling dhcpcd..."
+    sudo systemctl disable --now dhcpcd
+fi
+
+if systemctl is-enabled --quiet dhcpcd 2>/dev/null; then
+    warn "dhcpcd is enabled at boot. Disabling it..."
+    sudo systemctl disable dhcpcd
+fi
+
+if systemctl is-active --quiet dhcpcd 2>/dev/null; then
+    fail "dhcpcd is still active after disable attempt.
+    Stop it manually with: sudo systemctl disable --now dhcpcd"
 fi
 success "dhcpcd is not active"
+
+WLAN0_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$1=="wlan0"{print $2}')
+if [ -z "$WLAN0_NM_STATE" ]; then
+    fail "wlan0 not visible to NetworkManager. Is Wi-Fi hardware present and enabled?"
+fi
+
+if [ "$WLAN0_NM_STATE" = "unmanaged" ]; then
+    warn "wlan0 is unmanaged. Updating NetworkManager config for ifupdown..."
+    sudo mkdir -p /etc/NetworkManager/conf.d
+    sudo tee /etc/NetworkManager/conf.d/10-wifi-config-managed.conf >/dev/null <<'EOF'
+[ifupdown]
+managed=true
+EOF
+    sudo systemctl restart NetworkManager
+    sleep 1
+    WLAN0_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$1=="wlan0"{print $2}')
+fi
+
+if [ "$WLAN0_NM_STATE" = "unmanaged" ]; then
+    fail "wlan0 is still unmanaged by NetworkManager.
+    Check: nmcli device status"
+fi
+success "wlan0 is managed by NetworkManager (state: $WLAN0_NM_STATE)"
 
 if ! ip link show wlan0 &>/dev/null; then
     fail "wlan0 interface not found. Is Wi-Fi hardware present and enabled?"
@@ -165,19 +209,24 @@ else
 SECRET_KEY=${SECRET_KEY}
 WIFI_USER=${WIFI_USER}
 WIFI_PASS=${WIFI_PASS}
+HOSTNAME_DISPLAY=${HOSTNAME}
 ENVEOF
 
     chmod 600 "$ENV_FILE"
     success "Credentials saved to .env (chmod 600)"
 fi
 
-# ── Phase 3: Stamp hostname into template ─────────────────────────────────────
+# ── Phase 3: Record hostname for UI display ───────────────────────────────────
 
 echo ""
-info "Configuring for hostname: $HOSTNAME"
+info "Recording hostname for UI: $HOSTNAME"
 
-sed -i "s/HOSTNAME_PLACEHOLDER/${HOSTNAME}/g" "$SCRIPT_DIR/app/templates/index.html"
-success "Hostname set in index.html"
+if grep -q '^HOSTNAME_DISPLAY=' "$ENV_FILE"; then
+    sed -i "s/^HOSTNAME_DISPLAY=.*/HOSTNAME_DISPLAY=${HOSTNAME}/" "$ENV_FILE"
+else
+    echo "HOSTNAME_DISPLAY=${HOSTNAME}" >> "$ENV_FILE"
+fi
+success "Hostname recorded in .env"
 
 # ── Phase 4: Install polkit rule ──────────────────────────────────────────────
 
@@ -203,7 +252,7 @@ fi
 echo ""
 info "Setting ownership on existing Wi-Fi connection profiles..."
 
-WIFI_CONNS=$(nmcli -t -f NAME,TYPE connection show | grep '802-11-wireless' | cut -d: -f1)
+WIFI_CONNS=$(nmcli -t -f NAME,TYPE connection show | grep '802-11-wireless' | cut -d: -f1 || true)
 
 if [ -z "$WIFI_CONNS" ]; then
     info "No existing Wi-Fi connections found. Nothing to update."

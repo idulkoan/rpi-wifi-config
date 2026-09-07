@@ -4,6 +4,7 @@ import html
 import time
 import threading
 import re
+import socket
 from flask import Flask, jsonify, render_template, request, Response
 from functools import wraps
 
@@ -399,7 +400,10 @@ def delete_connection_by_uuid(uuid):
 @app.route("/")
 @require_auth
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        hostname=os.environ.get("HOSTNAME_DISPLAY", socket.gethostname()),
+    )
 
 
 @app.route("/api/status")
