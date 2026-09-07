@@ -13,6 +13,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
 AUTH_USER = os.environ.get("WIFI_USER", "admin")
 AUTH_PASS = os.environ.get("WIFI_PASS", "")
+PREFERRED_WIFI_INTERFACE = os.environ.get("WIFI_INTERFACE", "").strip()
 
 NM_BUS_NAME = "org.freedesktop.NetworkManager"
 NM_OBJ_PATH = "/org/freedesktop/NetworkManager"
@@ -35,6 +36,7 @@ NM_DEVICE_STATE = {
 
 NM_ACTIVE_STATE_ACTIVATED = dbus.UInt32(4)
 NM_ACTIVE_STATE_FAILED = dbus.UInt32(7)
+NM_DEVICE_TYPE_WIFI = dbus.UInt32(2)
 
 _connect_lock = threading.Lock()
 
@@ -64,41 +66,53 @@ def get_nm():
     return dbus.Interface(nm_obj, NM_IFACE)
 
 
-def get_wlan0():
+def get_wifi_device():
     bus = get_bus()
     nm = get_nm()
+
+    wifi_devices = []
     for dev_path in nm.GetDevices():
         dev_obj = bus.get_object(NM_BUS_NAME, dev_path)
         props = dbus.Interface(dev_obj, DBUS_PROPS_IFACE)
-        iface = str(props.Get(NM_DEV_IFACE, "Interface"))
-        if iface == "wlan0":
-            return dev_obj, props
-    return None, None
 
+        try:
+            dev_type = props.Get(NM_DEV_IFACE, "DeviceType")
+        except dbus.DBusException:
+            continue
 
-def get_wlan0_path():
-    bus = get_bus()
-    nm = get_nm()
-    for dev_path in nm.GetDevices():
-        dev_obj = bus.get_object(NM_BUS_NAME, dev_path)
-        props = dbus.Interface(dev_obj, DBUS_PROPS_IFACE)
+        if dev_type != NM_DEVICE_TYPE_WIFI:
+            continue
+
         iface = str(props.Get(NM_DEV_IFACE, "Interface"))
-        if iface == "wlan0":
-            return dev_path
-    return None
+        wifi_devices.append((dev_path, dev_obj, props, iface))
+
+    if not wifi_devices:
+        return None, None, None, None
+
+    if PREFERRED_WIFI_INTERFACE:
+        for dev_path, dev_obj, props, iface in wifi_devices:
+            if iface == PREFERRED_WIFI_INTERFACE:
+                return dev_path, dev_obj, props, iface
+
+    # Prefer normal Linux wireless names (wl*), then any Wi-Fi device.
+    for dev_path, dev_obj, props, iface in wifi_devices:
+        if iface.startswith("wl"):
+            return dev_path, dev_obj, props, iface
+
+    return wifi_devices[0]
 
 
 def get_wifi_status():
     bus = get_bus()
-    dev_obj, props = get_wlan0()
+    _, dev_obj, props, iface = get_wifi_device()
     if dev_obj is None:
-        return {"error": "wlan0 not found"}
+        return {"error": "No Wi-Fi interface found"}
 
     state_code = int(props.Get(NM_DEV_IFACE, "State"))
     state_str = NM_DEVICE_STATE.get(state_code, f"Unknown ({state_code})")
 
     result = {
-        "interface": "wlan0",
+        "interface": iface,
         "state": state_str,
         "state_code": state_code,
         "ssid": None,
@@ -139,7 +153,7 @@ def get_wifi_status():
 
 def get_access_points():
     bus = get_bus()
-    dev_obj, props = get_wlan0()
+    _, dev_obj, props, _ = get_wifi_device()
     if dev_obj is None:
         return []
 
@@ -315,11 +329,10 @@ def connect_to_network(ssid, passphrase):
     bus = get_bus()
     nm = get_nm()
 
-    wlan0_path = get_wlan0_path()
-    if wlan0_path is None:
-        return False, "wlan0 not found."
+    wifi_dev_path, dev_obj, dev_props, iface = get_wifi_device()
+    if wifi_dev_path is None:
+        return False, "No Wi-Fi interface found."
 
-    dev_obj, dev_props = get_wlan0()
     rollback_conn_path = None
     try:
         active_conn_path = str(dev_props.Get(NM_DEV_IFACE, "ActiveConnection"))
@@ -349,7 +362,7 @@ def connect_to_network(ssid, passphrase):
 
         active_path = str(nm.ActivateConnection(
             dbus.ObjectPath(target_conn_path),
-            dbus.ObjectPath(wlan0_path),
+            dbus.ObjectPath(wifi_dev_path),
             dbus.ObjectPath("/"),
         ))
 
@@ -362,12 +375,12 @@ def connect_to_network(ssid, passphrase):
             try:
                 nm.ActivateConnection(
                     dbus.ObjectPath(rollback_conn_path),
-                    dbus.ObjectPath(wlan0_path),
+                    dbus.ObjectPath(wifi_dev_path),
                     dbus.ObjectPath("/"),
                 )
             except dbus.DBusException:
                 pass
-        return False, f"Could not connect to {ssid}. Previous connection restored."
+        return False, f"Could not connect to {ssid} on {iface}. Previous connection restored."
 
     except dbus.DBusException as e:
         return False, f"D-Bus error: {str(e)}"

@@ -53,7 +53,7 @@
 </head>
 <body>
     <h1>Wi-Fi Configuration</h1>
-    <small>{{ hostname }} · wlan0</small>
+    <small id="header-subtitle">{{ hostname }} · Wi-Fi</small>
 
     <div id="msg"></div>
 
@@ -102,7 +102,12 @@
                 }
                 const connected = d.state_code === 100;
                 const dot = connected ? 'dot-green' : (d.state_code === 120 ? 'dot-red' : 'dot-grey');
+                const subtitleEl = document.getElementById('header-subtitle');
+                if (subtitleEl && d.interface) {
+                    subtitleEl.textContent = '{{ hostname }} \u00b7 ' + d.interface;
+                }
                 el.innerHTML = `
+                    <div class="row"><span class="label">Interface</span><span class="value">${d.interface || '\u2014'}</span></div>
                     <div class="row"><span class="label">State</span><span class="value"><span class="status-dot ${dot}"></span>${d.state}</span></div>
                     <div class="row"><span class="label">SSID</span><span class="value">${d.ssid || '—'}</span></div>
                     <div class="row"><span class="label">Signal</span><span class="value">${d.signal !== null ? d.signal + '%' : '—'}</span></div>

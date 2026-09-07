@@ -23,17 +23,17 @@ The following must be true on the target Pi before running the installer:
 
 - Raspberry Pi OS Bullseye or Bookworm (Debian 11/12)
 - Docker and Docker Compose installed
-- `wlan0` present and not rfkill-blocked
+- At least one Wi-Fi interface present (for example `wlan0` or `wlan1`) and not rfkill-blocked
 
 To verify your Pi is compatible, run:
 
 ```bash
 cat /etc/os-release
-ip link show wlan0
+ip -o link show | grep -E '^[0-9]+: wl'
 rfkill list wifi
 ```
 
-Expected: OS is Bullseye/Bookworm, wlan0 exists, and wifi is not blocked.
+Expected: OS is Bullseye/Bookworm, a `wl*` interface exists, and Wi-Fi is not blocked.
 
 On Bullseye, the installer will automatically install/enable NetworkManager and disable dhcpcd so the app can manage Wi-Fi over D-Bus.
 
@@ -193,7 +193,7 @@ NetworkManager rate-limits scan requests. Wait 30 seconds and try again.
 
 - Verify the passphrase is correct by testing on another device first
 - Check logs: `docker compose logs wifi-config`
-- Check wlan0 is not rfkill-blocked: `rfkill list wifi`
+- Check Wi-Fi is not rfkill-blocked: `rfkill list wifi`
 
 **App not reachable after Pi reboot**
 
@@ -218,7 +218,7 @@ All endpoints require Basic Auth except `/health`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/status` | Current wlan0 status |
+| GET | `/api/status` | Current Wi-Fi interface status |
 | GET | `/api/scan` | Scan for nearby networks |
 | GET | `/api/connections` | List saved Wi-Fi connections |
 | POST | `/api/connect` | Connect or update a network |

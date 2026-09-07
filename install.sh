@@ -84,13 +84,22 @@ if systemctl is-active --quiet dhcpcd 2>/dev/null; then
 fi
 success "dhcpcd is not active"
 
-WLAN0_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$1=="wlan0"{print $2}')
-if [ -z "$WLAN0_NM_STATE" ]; then
-    fail "wlan0 not visible to NetworkManager. Is Wi-Fi hardware present and enabled?"
+WIFI_IFACE=$(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2=="wifi"{print $1; exit}')
+if [ -z "$WIFI_IFACE" ]; then
+    WIFI_IFACE=$(ip -o link show | awk -F': ' '$2 ~ /^wl/{print $2; exit}')
+fi
+if [ -z "$WIFI_IFACE" ]; then
+    fail "No Wi-Fi interface found. Is Wi-Fi hardware present and enabled?"
+fi
+success "Detected Wi-Fi interface: $WIFI_IFACE"
+
+WIFI_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: -v d="$WIFI_IFACE" '$1==d{print $2}')
+if [ -z "$WIFI_NM_STATE" ]; then
+    fail "$WIFI_IFACE not visible to NetworkManager."
 fi
 
-if [ "$WLAN0_NM_STATE" = "unmanaged" ]; then
-    warn "wlan0 is unmanaged. Updating NetworkManager config for ifupdown..."
+if [ "$WIFI_NM_STATE" = "unmanaged" ]; then
+    warn "$WIFI_IFACE is unmanaged. Updating NetworkManager config for ifupdown..."
     sudo mkdir -p /etc/NetworkManager/conf.d
     sudo tee /etc/NetworkManager/conf.d/10-wifi-config-managed.conf >/dev/null <<'EOF'
 [ifupdown]
@@ -98,19 +107,19 @@ managed=true
 EOF
     sudo systemctl restart NetworkManager
     sleep 1
-    WLAN0_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$1=="wlan0"{print $2}')
+    WIFI_NM_STATE=$(nmcli -t -f DEVICE,STATE device status | awk -F: -v d="$WIFI_IFACE" '$1==d{print $2}')
 fi
 
-if [ "$WLAN0_NM_STATE" = "unmanaged" ]; then
-    fail "wlan0 is still unmanaged by NetworkManager.
+if [ "$WIFI_NM_STATE" = "unmanaged" ]; then
+    fail "$WIFI_IFACE is still unmanaged by NetworkManager.
     Check: nmcli device status"
 fi
-success "wlan0 is managed by NetworkManager (state: $WLAN0_NM_STATE)"
+success "$WIFI_IFACE is managed by NetworkManager (state: $WIFI_NM_STATE)"
 
-if ! ip link show wlan0 &>/dev/null; then
-    fail "wlan0 interface not found. Is Wi-Fi hardware present and enabled?"
+if ! ip link show "$WIFI_IFACE" &>/dev/null; then
+    fail "$WIFI_IFACE interface not found. Is Wi-Fi hardware present and enabled?"
 fi
-success "wlan0 exists"
+success "$WIFI_IFACE exists"
 
 if rfkill list wifi 2>/dev/null | grep -q "Hard blocked: yes"; then
     fail "Wi-Fi is hard-blocked (hardware switch). Unblock it first: rfkill unblock wifi"
@@ -296,7 +305,7 @@ fi
 
 PI_IP=$(ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+\.\d+\.\d+\.\d+' | head -1)
 if [ -z "$PI_IP" ]; then
-    PI_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+\.\d+\.\d+\.\d+' | head -1)
+    PI_IP=$(ip -4 addr show "$WIFI_IFACE" 2>/dev/null | grep -oP '(?<=inet\s)\d+\.\d+\.\d+\.\d+' | head -1)
 fi
 if [ -z "$PI_IP" ]; then
     PI_IP="<PI_IP>"
@@ -310,6 +319,7 @@ echo -e "  ${GREEN}Installation complete!${NC}"
 echo "================================================"
 echo ""
 echo "  Web UI:  http://${PI_IP}:8090"
+echo "  Wi-Fi:   ${WIFI_IFACE}"
 echo "  User:    ${WIFI_USER_DISPLAY}"
 echo "  Health:  http://${PI_IP}:8090/health"
 echo ""
@@ -350,12 +360,12 @@ echo ""
 echo "  Homepage:"
 echo "    - Wi-Fi Config:"
 echo "        href: http://${PI_IP}:8090"
-echo "        description: Manage wlan0 Wi-Fi connections"
+echo "        description: Manage Wi-Fi connections"
 echo "        icon: mdi-wifi"
 echo ""
 echo "  Homer:"
 echo "    - name: Wi-Fi Config"
-echo "      subtitle: Manage wlan0 Wi-Fi connections"
+echo "      subtitle: Manage Wi-Fi connections"
 echo "      url: http://${PI_IP}:8090"
 echo "      icon: fas fa-wifi"
 echo ""
